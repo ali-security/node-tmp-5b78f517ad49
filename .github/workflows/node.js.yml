@@ -4,29 +4,54 @@
 name: Node.js CI
 
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Space-separated mocha spec files to run instead of the full suite'
+        required: false
+        default: ''
 
 jobs:
   build:
 
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [14.x, 16.x, 18.x, 20.x]
+        node-version: [14.x, 16.x, 18.x, 20.x, 24.x]
         os: [ubuntu-latest, windows-latest]
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
+    - name: Pin the npm registry to the release-date time machine
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set "//time-machines-npm.sealsecurity.io/:_authToken=2025-08-08T21:22:08.916Z"
     - run: npm ci
     # - run: npm run build --if-present
-    - run: npm test
+    - name: npm test
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          npx mocha ${{ inputs.test-filter }}
+        else
+          npm test
+        fi
+    - name: npm pack
+      if: matrix.node-version == '24.x' && matrix.os == 'ubuntu-latest'
+      run: npm pack
+    - name: Upload the packed tarball
+      if: matrix.node-version == '24.x' && matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: tmp-0.2.5-tgz
+        path: tmp-0.2.5.tgz
+        if-no-files-found: error
